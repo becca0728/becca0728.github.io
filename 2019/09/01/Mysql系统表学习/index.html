@@ -1,0 +1,397 @@
+<!DOCTYPE html><html><head><meta name="generator" content="Hexo 3.9.0"><meta http-equiv="content-type" content="text/html; charset=utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport"><meta content="yes" name="apple-mobile-web-app-capable"><meta content="black-translucent" name="apple-mobile-web-app-status-bar-style"><meta content="telephone=no" name="format-detection"><meta name="description"><title> | Becca's blog</title><link rel="stylesheet" type="text/css" href="/css/style.css?v=0.0.0"><link rel="stylesheet" type="text/css" href="//lib.baomitu.com/normalize/8.0.1/normalize.min.css"><link rel="stylesheet" type="text/css" href="//lib.baomitu.com/pure/1.0.0/pure-min.css"><link rel="stylesheet" type="text/css" href="//lib.baomitu.com/pure/1.0.0/grids-responsive-min.css"><link rel="stylesheet" href="//lib.baomitu.com/font-awesome/4.7.0/css/font-awesome.min.css"><script type="text/javascript" src="//lib.baomitu.com/jquery/3.4.0/jquery.min.js"></script><link rel="icon" mask sizes="any" href="/favicon.ico"><link rel="Shortcut Icon" type="image/x-icon" href="/favicon.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="apple-touch-icon-precomposed" href="/apple-touch-icon.png"></head><body><div class="body_container"><div id="header"><div class="site-name"><h1 class="hidden">Becca's blog</h1><a id="logo" href="/.">Becca's blog</a><p class="description"></p></div><div id="nav-menu"><a class="current" href="/."><i class="fa fa-home"> Start</i></a><a href="/archives/"><i class="fa fa-archive"> Archiv</i></a><a href="/about/"><i class="fa fa-user"> Über</i></a><a href="/atom.xml"><i class="fa fa-rss"> RSS</i></a></div></div><div class="pure-g" id="layout"><div class="pure-u-1 pure-u-md-3-4"><div class="content_container"><div class="post"><h1 class="post-title"></h1><div class="post-meta">Sep 1, 2019</div><div class="post-content"><hr>
+<p>title: Mysql读写文件及Mysql系统表的学习<br>toc: true<br>—## Mysql数据库的读写文件</p>
+<h4 id="1、Mysql的文件操作权限"><a href="#1、Mysql的文件操作权限" class="headerlink" title="1、Mysql的文件操作权限"></a>1、Mysql的文件操作权限</h4><p>在MySQL中，存在一个称为secure_file_priv的全局变量，该变量用于限制数据的导入和导出操作。使用<code>show global variables like &#39;%secure%&#39;</code> 或<code>select @@secure_file_priv</code>查看该全局变量。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; show global variables like &apos;%secure%&apos;;</span><br><span class="line">+--------------------------+-----------------------+</span><br><span class="line">| Variable_name            | Value                 |</span><br><span class="line">+--------------------------+-----------------------+</span><br><span class="line">| require_secure_transport | OFF                   |</span><br><span class="line">| secure_auth              | ON                    |</span><br><span class="line">| secure_file_priv         | /var/lib/mysql-files/ |</span><br><span class="line">+--------------------------+-----------------------+</span><br></pre></td></tr></table></figure>
+
+<p>说明：</p>
+<p>1、secure_file_priv有以下三种值：</p>
+<ul>
+<li><p>secure_file_priv为null    表示不允许导入导出</p>
+</li>
+<li><p>secure_file_priv指定文件夹时，表示mysql的导入导出只能发生在指定的文件夹</p>
+</li>
+<li><p>secure_file_priv没有设置时，则表示没有任何限制</p>
+</li>
+</ul>
+<p>2、我的mysql版本为5.2.27，在&lt;=5.7.5版本的mysql里面，secure_file_priv默认值为empty，在大于5.7.6里面secure_file_priv默认值是platform sepcific(linux 默认是/var/lib/mysql-files)，表示读写只能在这个目录下面。</p>
+<p>3、Secure_file_priv是一个全局变量，它是一个只读变量，不能在运行时改变它。也就是说如果此种注入比较依赖版本。修改这个值的方法只能在配置文件里面修改，在mysql里面是无法修改的，修改配置文件后，重启数据库服务使其生效。</p>
+<h4 id="2、使用load-file-读文件"><a href="#2、使用load-file-读文件" class="headerlink" title="2、使用load_file()读文件"></a>2、使用load_file()读文件</h4><ul>
+<li><p><strong>前提条件</strong></p>
+<ul>
+<li>用户必须有权限读取文件且必须完全可读</li>
+<li>待读取文件必须在服务器上</li>
+<li>必须指定文件的完整路径</li>
+<li>待读取文件必须小于max_allowed_packet</li>
+<li>用户必须有FILE权限</li>
+<li>secure_file_priv的值为空，如果值为某目录，那么就只能对该目录的文件进行操作</li>
+</ul>
+</li>
+<li><p><strong>读指定目录下的文件</strong></p>
+<ul>
+<li><p>使用命令<code>select load_file(&#39;&lt;file_path&gt;&#39;)</code>读取文件内容</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; select load_file(&apos;/var/lib/mysql-files/test_loadfile.txt&apos;);</span><br><span class="line">+-----------------------------------------------------------+</span><br><span class="line">| load_file(&apos;/var/lib/mysql-files/test_loadfile.txt&apos;)       |</span><br><span class="line">+-----------------------------------------------------------+</span><br><span class="line">| hello, my name is wyx, i am a network security engineer.  |</span><br><span class="line">+-----------------------------------------------------------+</span><br><span class="line">1 row in set (0.00 sec)</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>读取文件内容并插入数据库表中</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; INSERT INTO tb_allinone (id, name, attachment,cardid) VALUES (3, &apos;wangyx&apos;, LOAD_FILE(&apos;/var/lib/mysql-files/test_loadfile.txt&apos;), &apos;123456789&apos;);</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+</li>
+</ul>
+<h4 id="3、使用INTO-OUTFILE-DUMPFILE写文件"><a href="#3、使用INTO-OUTFILE-DUMPFILE写文件" class="headerlink" title="3、使用INTO OUTFILE/DUMPFILE写文件"></a>3、使用INTO OUTFILE/DUMPFILE写文件</h4><ul>
+<li><p><strong>dumpfile 和 outfile 的差异</strong></p>
+<ul>
+<li>outfile函数可以导出多行，而dumpfile只能导出一行数</li>
+<li>outfile函数在将数据写到文件里时有特殊的格式转换，导出时会在每一行的结束自动加上换行符，而dumpfile则保持原数据格式（适用于二进制文件）</li>
+</ul>
+</li>
+<li><p><strong>写文件</strong></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"># into outfile</span><br><span class="line">mysql&gt; select &apos;test outfile&apos; into outfile &apos;/var/lib/mysql-files/test_output.txt&apos;;</span><br><span class="line"># into dumpfile</span><br><span class="line">mysql&gt; select &apos;test outfile&apos; into dumpfile &apos;/var/lib/mysql-files/test_dumpput.txt&apos;;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p><strong>使用load_file()读文件后，再写文件</strong></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"># into outfile</span><br><span class="line">mysql&gt; select load_file(&apos;/var/lib/mysql-files/test_loadfile.txt&apos;) into outfile &apos;/var/lib/mysql-files/test_outfile.txt&apos;;</span><br><span class="line"></span><br><span class="line"># into dumpfile</span><br><span class="line">mysql&gt; select load_file(&apos;/var/lib/mysql-files/test_loadfile.txt&apos;) into dumpfile &apos;/var/lib/mysql-files/test_dumpfile.txt&apos;;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p><strong>将数据库表查询结果写入文件</strong></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"># into outfile</span><br><span class="line">mysql&gt; select * from tb_allinone into outfile &apos;/var/lib/mysql-files/tb_outfile.txt&apos;;</span><br><span class="line"></span><br><span class="line"># into dumpfile</span><br><span class="line">mysql&gt; select * from tb_allinone into dumpfile &apos;/var/lib/mysql-files/tb_dumpfile.txt&apos;;</span><br><span class="line">ERROR 1172 (42000): Result consisted of more than one row</span><br><span class="line"># 使用dumpfile导出查询结果时，只能写入一行</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h2 id="Mysql系统表的学习"><a href="#Mysql系统表的学习" class="headerlink" title="Mysql系统表的学习"></a>Mysql系统表的学习</h2><p>本部分内容转载自：<a href="https://cloud.tencent.com/developer/article/1340819" target="_blank" rel="noopener">https://cloud.tencent.com/developer/article/1340819</a></p>
+<ul>
+<li><h4 id="MySQL5-7-默认模式"><a href="#MySQL5-7-默认模式" class="headerlink" title="MySQL5.7 默认模式"></a>MySQL5.7 默认模式</h4></li>
+</ul>
+<table>
+<thead>
+<tr>
+<th align="left">库名</th>
+<th align="left">表数量</th>
+<th align="left">视图数量</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">information_schema</td>
+<td align="left">61</td>
+<td align="left">0</td>
+</tr>
+<tr>
+<td align="left">mysql</td>
+<td align="left">32</td>
+<td align="left">0</td>
+</tr>
+<tr>
+<td align="left">performance_schema</td>
+<td align="left">87</td>
+<td align="left">0</td>
+</tr>
+<tr>
+<td align="left">sys</td>
+<td align="left">1</td>
+<td align="left">100</td>
+</tr>
+</tbody></table>
+<ul>
+<li><h4 id="Information-schema-系统库"><a href="#Information-schema-系统库" class="headerlink" title="Information_schema 系统库"></a>Information_schema 系统库</h4><p>Information_schema数据库是<a href="https://cloud.tencent.com/product/cdb?from=10680" target="_blank" rel="noopener">MySQL</a>自带的，它提供了访问数据库元数据的方式。</p>
+<h4 id="什么是元数据呢？"><a href="#什么是元数据呢？" class="headerlink" title="什么是元数据呢？"></a>什么是元数据呢？</h4><p>元数据是关于数据的数据，如数据库名或表名，列的数据类型，或访问权限等。有些时候用于表述该信息的其他术语包括“数据词典”和“系统目录”。</p>
+<p>在MySQL中，把 information_schema 看作是一个数据库，确切说是信息数据库。其中保存着关于MySQL服务器所维护的所有其他数据库的信息。如数据库名，数据库的表，表栏的数据类型与访问权限等。在INFORMATION_SCHEMA中，有数个只读表。它们实际上是视图，而不是基本表，因此，你将无法看到与之相关的任何文件</p>
+<h4 id="information-schema-数据库部分表说明"><a href="#information-schema-数据库部分表说明" class="headerlink" title="information_schema 数据库部分表说明"></a>information_schema 数据库部分表说明</h4><table>
+<thead>
+<tr>
+<th align="left">表名</th>
+<th align="left">注释</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">SCHEMATA</td>
+<td align="left">提供了当前mysql实例中所有数据库的信息。是show databases的结果取之此表</td>
+</tr>
+<tr>
+<td align="left">TABLES</td>
+<td align="left">提供了关于数据库中的表的信息（包括视图）。详细表述了某个表属于哪个schema、表类型、表引擎、创建时间等信息。是show tables from schemaname的结果取之此表</td>
+</tr>
+<tr>
+<td align="left">COLUMNS</td>
+<td align="left">提供了表中的列信息。详细表述了某张表的所有列以及每个列的信息。是show columns from schemaname.tablename的结果取之此表</td>
+</tr>
+<tr>
+<td align="left">STATISTICS</td>
+<td align="left">提供了关于表索引的信息。是show index from schemaname.tablename的结果取之此表</td>
+</tr>
+<tr>
+<td align="left">USER_PRIVILEGES</td>
+<td align="left">用户权限表:给出了关于全程权限的信息。该信息源自mysql.user授权表。是非标准表</td>
+</tr>
+<tr>
+<td align="left">SCHEMA_PRIVILEGES</td>
+<td align="left">方案权限表:给出了关于方案（数据库）权限的信息。该信息来自mysql.db授权表。是非标准表</td>
+</tr>
+<tr>
+<td align="left">TABLE_PRIVILEGES</td>
+<td align="left">表权限表:给出了关于表权限的信息。该信息源自mysql.tables_priv授权表。是非标准表</td>
+</tr>
+<tr>
+<td align="left">COLUMN_PRIVILEGES</td>
+<td align="left">列权限表:给出了关于列权限的信息。该信息源自mysql.columns_priv授权表。是非标准表</td>
+</tr>
+<tr>
+<td align="left">CHARACTER_SETS</td>
+<td align="left">字符集表:提供了mysql实例可用字符集的信息。是SHOW CHARACTER SET结果集取之此表</td>
+</tr>
+<tr>
+<td align="left">COLLATIONS</td>
+<td align="left">提供了关于各字符集的对照信息</td>
+</tr>
+<tr>
+<td align="left">COLLATION_CHARACTER_SET_APPLICABILITY</td>
+<td align="left">指明了可用于校对的字符集。这些列等效于SHOW COLLATION的前两个显示字段。</td>
+</tr>
+<tr>
+<td align="left">TABLE_CONSTRAINTS</td>
+<td align="left">描述了存在约束的表。以及表的约束类型</td>
+</tr>
+<tr>
+<td align="left">KEY_COLUMN_USAGE</td>
+<td align="left">描述了具有约束的键列</td>
+</tr>
+<tr>
+<td align="left">ROUTINES</td>
+<td align="left">提供了关于存储子程序（存储程序和函数）的信息。此时，ROUTINES表不包含自定义函数（UDF）。名为“mysql.proc name”的列指明了对应于INFORMATION_SCHEMA.ROUTINES表的mysql.proc表列</td>
+</tr>
+<tr>
+<td align="left">VIEWS</td>
+<td align="left">给出了关于数据库中的视图的信息。需要有show views权限，否则无法查看视图信息</td>
+</tr>
+<tr>
+<td align="left">TRIGGERS</td>
+<td align="left">提供了关于触发程序的信息。必须有super权限才能查看该表</td>
+</tr>
+</tbody></table>
+</li>
+</ul>
+<ul>
+<li><h4 id="performance-schema-系统库"><a href="#performance-schema-系统库" class="headerlink" title="performance_schema 系统库"></a>performance_schema 系统库</h4><p>PERFORMANCE_SCHEMA这个功能默认是关闭的。需要设置参数： performance_schema 才可以启动该功能，这个参数是静态参数，只能写在my.cnf 中 不能动态修改。</p>
+<h4 id="performance-schema数据库部分表说明"><a href="#performance-schema数据库部分表说明" class="headerlink" title="performance_schema数据库部分表说明"></a>performance_schema数据库部分表说明</h4><table>
+<thead>
+<tr>
+<th align="left">表名</th>
+<th align="left">注释</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">setup_table</td>
+<td align="left">设置表，配置监控选项</td>
+</tr>
+<tr>
+<td align="left">current_events_table</td>
+<td align="left">记录当前那些thread 正在发生什么事情</td>
+</tr>
+<tr>
+<td align="left">history_table</td>
+<td align="left">发生的各种事件的历史记录表</td>
+</tr>
+<tr>
+<td align="left">summary_table</td>
+<td align="left">对各种事件的统计表</td>
+</tr>
+<tr>
+<td align="left">setup_consumers\setup_instruments</td>
+<td align="left">描述各种事件, 设置哪些事件能够被收集</td>
+</tr>
+<tr>
+<td align="left">setup_instruments</td>
+<td align="left">描述这个数据库下的表名以及是否开启监控</td>
+</tr>
+<tr>
+<td align="left">setup_timers</td>
+<td align="left">描述监控选项已经采样频率的时间间隔</td>
+</tr>
+<tr>
+<td align="left">threads</td>
+<td align="left">监控服务器所有连接</td>
+</tr>
+<tr>
+<td align="left">performance_timers</td>
+<td align="left">设置一些监控信息, 指定mysql服务可用的监控周期，CYCLE表示按每秒检测2603393034次, 目前 performance-schema 只支持’wait’时间的监控，代码树上 wait/ 下的函数都可以监控到</td>
+</tr>
+</tbody></table>
+</li>
+<li><p>note</p>
+<p>通过以上分析，我们得知information_schema数据库中存储着当前数据库所有的数据库、表名、字段名信息，只要执行相应的SQL语句，即可把数据库的信息爆出。由此我们可以得出一下基本的注入语句：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">Select * from information_schema.schemata; //爆出数据库</span><br><span class="line"></span><br><span class="line">Select table_name from information_schema.tables where table_schema=’wyxtest’; //爆出指定数据库wyxtest的所有表名</span><br><span class="line"></span><br><span class="line">Select column_name from information_schama.columns where table_name=’allinone’ and table_schema=’wyxtest’;// 爆出dvwa数据库的表allinone的所有字段名</span><br><span class="line"></span><br><span class="line">select (user,password) from dvwa.wyxtest; //爆出数据库wyxtest内容</span><br></pre></td></tr></table></figure>
+
+<p>参考：<a href="https://www.freebuf.com/column/201364.html" target="_blank" rel="noopener">https://www.freebuf.com/column/201364.html</a></p>
+</li>
+<li><h4 id="mysql-系统库"><a href="#mysql-系统库" class="headerlink" title="mysql 系统库"></a>mysql 系统库</h4><p>在mysql数据库中，有mysql_install_db脚本初始化权限表，存储权限的表</p>
+<h4 id="mysql数据库部分表说明"><a href="#mysql数据库部分表说明" class="headerlink" title="mysql数据库部分表说明"></a>mysql数据库部分表说明</h4><table>
+<thead>
+<tr>
+<th align="left">表名</th>
+<th align="left">注释</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">user</td>
+<td align="left">用户列、权限列、安全列、资源控制列</td>
+</tr>
+<tr>
+<td align="left">db</td>
+<td align="left">用户列、权限列</td>
+</tr>
+<tr>
+<td align="left">host</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">table_priv</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">columns_priv</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">proc_priv</td>
+<td align="left"></td>
+</tr>
+</tbody></table>
+</li>
+</ul>
+<ul>
+<li><h4 id="sys系统库"><a href="#sys系统库" class="headerlink" title="sys系统库"></a>sys系统库</h4><p>sys_config ： 这是在这个系统库上存在的唯一一个表</p>
+<h4 id="sys数据库表说明"><a href="#sys数据库表说明" class="headerlink" title="sys数据库表说明"></a>sys数据库表说明</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">CREATE TABLE `sys_config` (</span><br><span class="line">  `variable` varchar(128) NOT NULL,</span><br><span class="line">  `value` varchar(128) DEFAULT NULL,</span><br><span class="line">  `set_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,</span><br><span class="line">  `set_by` varchar(128) DEFAULT NULL,</span><br><span class="line">  PRIMARY KEY (`variable`)</span><br><span class="line">) ENGINE=InnoDB DEFAULT CHARSET=utf8</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>variable ： 配置选项名称</li>
+<li>value    ： 配置选项值</li>
+<li>set_time ： 该行配置修改的时间</li>
+<li>set_by   ： 该行配置信息修改者，如果从被安装没有修改过，那么这个数据应该为NULL</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; select * from sys_config;</span><br><span class="line">+--------------------------------------+-------+---------------------+--------+</span><br><span class="line">| variable                             | value | set_time            | set_by |</span><br><span class="line">+--------------------------------------+-------+---------------------+--------+</span><br><span class="line">| diagnostics.allow_i_s_tables         | OFF   | 2019-07-31 06:23:42 | NULL   |</span><br><span class="line">| diagnostics.include_raw              | OFF   | 2019-07-31 06:23:42 | NULL   |</span><br><span class="line">| ps_thread_trx_info.max_length        | 65535 | 2019-07-31 06:23:42 | NULL   |</span><br><span class="line">| statement_performance_analyzer.limit | 100   | 2019-07-31 06:23:42 | NULL   |</span><br><span class="line">| statement_performance_analyzer.view  | NULL  | 2019-07-31 06:23:42 | NULL   |</span><br><span class="line">| statement_truncate_len               | 64    | 2019-07-31 06:23:42 | NULL   |</span><br><span class="line">+--------------------------------------+-------+---------------------+--------+</span><br></pre></td></tr></table></figure>
+
+<p>以上值的会话变量为<code>@sys.</code>+表中variable字段,如：</p>
+<figure class="highlight javascript"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">@sys.statement_truncate_len</span><br></pre></td></tr></table></figure>
+
+<p>可以</p>
+<figure class="highlight javascript"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">set</span> @sys.statement_truncate_len = 32</span><br></pre></td></tr></table></figure>
+
+<p>临时改变值，在会话中会一直使用这个值，如果想要恢复使用表的默认值，只需要将这个会话值设置为null</p>
+<figure class="highlight javascript"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">set</span> @sys.statement_truncate_len = null;</span><br></pre></td></tr></table></figure>
+
+<h4 id="diagnostics-allow-i-s-tables"><a href="#diagnostics-allow-i-s-tables" class="headerlink" title="diagnostics.allow_i_s_tables"></a>diagnostics.allow_i_s_tables</h4><p>默认为OFF ，如果开启表示允许diagnostics() 存储过程执行扫描information_schema.tables 表，如果表很多，那么可能会很耗性能</p>
+<h4 id="diagnostics-include-raw"><a href="#diagnostics-include-raw" class="headerlink" title="diagnostics.include_raw"></a>diagnostics.include_raw</h4><p>默认为OFF,开启将会从metrics 视图输出未加工处理的数据</p>
+<h4 id="statement-performance-analyzer-limit"><a href="#statement-performance-analyzer-limit" class="headerlink" title="statement_performance_analyzer.limit"></a>statement_performance_analyzer.limit</h4><p>视图在没有加limit限制时，返回的最大行数</p>
+<h4 id="statement-truncate-len"><a href="#statement-truncate-len" class="headerlink" title="statement_truncate_len"></a>statement_truncate_len</h4><p>通过format_statement()函数返回值的最大长度</p>
+<h4 id="debug"><a href="#debug" class="headerlink" title="debug"></a>debug</h4><p>这个表非默认选项还有一个@sys.debug参数,可以手动加入</p>
+<figure class="highlight javascript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">INSERT INTO sys_config (variable, value) VALUES(<span class="string">'debug'</span>, <span class="string">'ON'</span>);</span><br><span class="line">UPDATE sys_config SET value = <span class="string">'OFF'</span> WHERE variable = <span class="string">'debug'</span>;</span><br><span class="line">SET @sys.debug = NULL;</span><br></pre></td></tr></table></figure>
+
+<h4 id="关于此表有两个触发器"><a href="#关于此表有两个触发器" class="headerlink" title="关于此表有两个触发器"></a>关于此表有两个触发器</h4><h4 id="sys-config-insert-set-user触发器"><a href="#sys-config-insert-set-user触发器" class="headerlink" title="sys_config_insert_set_user触发器"></a>sys_config_insert_set_user触发器</h4><p>如果加入新行通过insert语句，那么这个触发器会把set_by列设置为当前操作者</p>
+<h4 id="sys-config-update-set-user触发器"><a href="#sys-config-update-set-user触发器" class="headerlink" title="sys_config_update_set_user触发器"></a>sys_config_update_set_user触发器</h4><p>如果加入新行通过update语句，那么这个触发器会把set_by列设置为当前操作者</p>
+</li>
+</ul>
+<ul>
+<li><h4 id="mysql-show-命令"><a href="#mysql-show-命令" class="headerlink" title="mysql show 命令"></a>mysql show 命令</h4></li>
+</ul>
+<table>
+<thead>
+<tr>
+<th align="left">命令</th>
+<th align="left">注释</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">desc [table_name]</td>
+<td align="left">表信息</td>
+</tr>
+<tr>
+<td align="left">show columns from [table_name]</td>
+<td align="left">表字段</td>
+</tr>
+<tr>
+<td align="left">describe [table_name]</td>
+<td align="left">表信息</td>
+</tr>
+<tr>
+<td align="left">show create table [table_name]</td>
+<td align="left">表创建语句</td>
+</tr>
+<tr>
+<td align="left">show create database [database_name]</td>
+<td align="left">显示数据库信息</td>
+</tr>
+<tr>
+<td align="left">show table status from [database_name]</td>
+<td align="left">数据库状态</td>
+</tr>
+<tr>
+<td align="left">show tables</td>
+<td align="left">显示当前数据库中所有表的名称</td>
+</tr>
+<tr>
+<td align="left">show tables from [database_name]</td>
+<td align="left">显示当前数据库中所有表的名称(同上)</td>
+</tr>
+<tr>
+<td align="left">show databases</td>
+<td align="left">显示mysql中所有数据库的名称</td>
+</tr>
+<tr>
+<td align="left">show processlist</td>
+<td align="left">显示系统中正在运行的所有进程，也就是当前正在执行的查询。</td>
+</tr>
+<tr>
+<td align="left">show table status</td>
+<td align="left">显示当前使用或者指定的database中的每个表的信息。信息包括表类型和表的最新更新时间</td>
+</tr>
+<tr>
+<td align="left">show columns from [table_name] from [database_name]</td>
+<td align="left">显示表中列名称</td>
+</tr>
+<tr>
+<td align="left">show grants for user_name@localhost</td>
+<td align="left">显示一个用户的权限，显示结果类似于grant 命令</td>
+</tr>
+<tr>
+<td align="left">show index from [table_name]</td>
+<td align="left">显示表的索引</td>
+</tr>
+<tr>
+<td align="left">show status</td>
+<td align="left">显示一些系统特定资源的信息，例如，正在运行的线程数量</td>
+</tr>
+<tr>
+<td align="left">show variables</td>
+<td align="left">显示系统变量的名称和值</td>
+</tr>
+<tr>
+<td align="left">show privileges</td>
+<td align="left">显示服务器所支持的不同权限</td>
+</tr>
+<tr>
+<td align="left">show create database [database_name]</td>
+<td align="left">显示create database 语句是否能够创建指定的数据库</td>
+</tr>
+<tr>
+<td align="left">show create table [table_name]</td>
+<td align="left">显示create database 语句是否能够创建指定的数据库</td>
+</tr>
+<tr>
+<td align="left">show engies</td>
+<td align="left">显示安装以后可用的存储引擎和默认引擎</td>
+</tr>
+<tr>
+<td align="left">show innodb status</td>
+<td align="left">显示innoDB存储引擎的状态</td>
+</tr>
+<tr>
+<td align="left">show logs</td>
+<td align="left">显示BDB存储引擎的日志</td>
+</tr>
+<tr>
+<td align="left">show warnings</td>
+<td align="left">显示最后一个执行的语句所产生的错误、警告和通知</td>
+</tr>
+<tr>
+<td align="left">show errors</td>
+<td align="left">只显示最后一个执行语句所产生的错误</td>
+</tr>
+</tbody></table>
+</div><div class="tags"></div><div class="post-nav"><a class="next" href="/2019/08/06/pymysql/">python操作mysql</a></div></div></div></div><div class="pure-u-1-4 hidden_mid_and_down"><div id="sidebar"><div class="widget"><form class="search-form" action="//www.google.com/search" method="get" accept-charset="utf-8" target="_blank"><input type="text" name="q" maxlength="20" placeholder="Search"><input type="hidden" name="sitesearch" value="http://yoursite.comf"></form></div><div class="widget"><div class="widget-title"><i class="fa fa-folder-o"> Kategorien</i></div></div><div class="widget"><div class="widget-title"><i class="fa fa-star-o"> Tags</i></div><div class="tagcloud"></div></div><div class="widget"><div class="widget-title"><i class="fa fa-file-o"> Letzte</i></div><ul class="post-list"><li class="post-list-item"><a class="post-list-link" href="/2019/09/01/Mysql系统表学习/">Mysql系统表学习</a></li><li class="post-list-item"><a class="post-list-link" href="/2019/08/06/pymysql/">python操作mysql</a></li></ul></div><div class="widget"><div class="widget-title"><i class="fa fa-external-link"> Blogroll</i></div><ul></ul><a href="http://www.example1.com/" title="site-name1" target="_blank">site-name1</a><ul></ul><a href="http://www.example2.com/" title="site-name2" target="_blank">site-name2</a><ul></ul><a href="http://www.example3.com/" title="site-name3" target="_blank">site-name3</a></div></div></div><div class="pure-u-1 pure-u-md-3-4"><div id="footer">Copyright © 2019 <a href="/." rel="nofollow">Becca's blog.</a> Powered by<a rel="nofollow" target="_blank" href="https://hexo.io"> Hexo.</a><a rel="nofollow" target="_blank" href="https://github.com/tufu9441/maupassant-hexo"> Theme</a> by<a rel="nofollow" target="_blank" href="https://github.com/pagecho"> Cho.</a></div></div></div><a class="show" id="rocket" href="#top"></a><script type="text/javascript" src="/js/totop.js?v=0.0.0" async></script><script type="text/javascript" src="//lib.baomitu.com/fancybox/3.5.7/jquery.fancybox.min.js" async></script><script type="text/javascript" src="/js/fancybox.js?v=0.0.0" async></script><link rel="stylesheet" type="text/css" href="//lib.baomitu.com/fancybox/3.5.7/jquery.fancybox.min.css"><script type="text/javascript" src="/js/codeblock-resizer.js?v=0.0.0"></script><script type="text/javascript" src="/js/smartresize.js?v=0.0.0"></script></div></body></html>
